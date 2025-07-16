@@ -107,20 +107,20 @@ impl MapEntry {
         &self.path
     }
 
-    pub fn writeable<M: Mmap>(&self) -> Result<WriteableMapProtection<M>, M::Error> {
+    pub fn writeable<M: Mmap>(&self) -> Result<WriteableMapProtection<'_, M>, M::Error> {
         if !self.write {
             M::protect(self.base(), self.len(), self.prot() | MmapProt::WRITE)?;
         }
         Ok(WriteableMapProtection {
             map_entry: self,
-            _phantom: PhantomData,
+            phantom: PhantomData,
         })
     }
 }
 
 pub struct WriteableMapProtection<'a, M: Mmap> {
     map_entry: &'a MapEntry,
-    _phantom: PhantomData<M>,
+    phantom: PhantomData<M>,
 }
 
 impl<M: Mmap> Drop for WriteableMapProtection<'_, M> {

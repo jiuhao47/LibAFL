@@ -11,6 +11,7 @@ use alloc::{
 use core::{ffi::CStr, fmt::Debug, ops::RangeInclusive, ptr};
 use std::{
     fs,
+    io::{Read, Seek, SeekFrom},
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd},
         raw::c_void,
@@ -544,7 +545,7 @@ impl Default for IntelPTBuilder {
     ///     .inherit(false)
     ///     .perf_buffer_size(128 * PAGE_SIZE + PAGE_SIZE)
     ///     .unwrap()
-    ///     .perf_aux_buffer_size(2 * 1024 * 1024)
+    ///     .perf_aux_buffer_size(4 * 1024 * 1024)
     ///     .unwrap()
     ///     .ip_filters(&[]);
     /// assert_eq!(builder, IntelPTBuilder::default());
@@ -557,7 +558,7 @@ impl Default for IntelPTBuilder {
             exclude_hv: true,
             inherit: false,
             perf_buffer_size: 128 * PAGE_SIZE + PAGE_SIZE,
-            perf_aux_buffer_size: 2 * 1024 * 1024,
+            perf_aux_buffer_size: 4 * 1024 * 1024,
             ip_filters: Vec::new(),
         }
     }
@@ -754,10 +755,10 @@ impl IntelPTBuilder {
 /// (This is almost mapped to `IA32_RTIT_CTL MSR` by perf)
 #[bitfield(u64, default = 0)]
 struct PtConfig {
-    /// Disable call return address compression. AKA DisRETC in Intel SDM.
+    /// Disable call return address compression. AKA `DisRETC` in Intel SDM.
     #[bit(11, rw)]
     noretcomp: bool,
-    /// Indicates the frequency of PSB packets. AKA PSBFreq in Intel SDM.
+    /// Indicates the frequency of `PSB` packets. AKA `PSBFreq` in Intel SDM.
     #[bits(24..=27, rw)]
     psb_period: u4,
 }
@@ -831,6 +832,28 @@ pub(crate) fn availability_in_linux() -> Result<(), String> {
     } else {
         Err(reasons.join("; "))
     }
+}
+
+/// Check if the `MSR IA32_VMX_MISC` has bit 14 set, which indicates that Intel PT is
+/// available in VMX operations.
+pub(crate) fn availability_in_vmx() -> Result<bool, String> {
+    let error_prefix = "Failed to check for PT availability in VM operations: ";
+    let mut msrs = fs::OpenOptions::new()
+        .read(true)
+        .open("/dev/cpu/0/msr")
+        .map_err(|e| {
+            format!(
+                "{error_prefix} Failed to open /dev/cpu/0/msr: {e} \
+                Make sure you have the `msr` kernel module loaded"
+            )
+        })?;
+    msrs.seek(SeekFrom::Start(0x485))
+        .map_err(|e| format!("{error_prefix} Failed to seek in /dev/cpu/0/msr: {e}"))?;
+    let mut buf = [0u8; 8];
+    msrs.read_exact(&mut buf)
+        .map_err(|e| format!("{error_prefix} Failed to read MSR 0x485: {e}"))?;
+
+    Ok(buf[1] & 0b0100_0000 != 0)
 }
 
 fn new_perf_event_attr_intel_pt() -> Result<perf_event_attr, Error> {
@@ -909,7 +932,7 @@ fn linux_version() -> Result<(usize, usize, usize), ()> {
     let release = unsafe { CStr::from_ptr(uname_data.release.as_ptr()) };
     let mut parts = release
         .to_bytes()
-        .split(|&c| c == b'.' || c == b'-')
+        .split(|&c| matches!(c, b'.' | b'-' | b'+'))
         .take(3)
         .map(|s| String::from_utf8_lossy(s).parse::<usize>());
     if let (Some(Ok(major)), Some(Ok(minor)), Some(Ok(patch))) =

@@ -233,8 +233,7 @@ jobs:
         run: ./scripts/fmt_all.sh check
 
   check-md-links:
-    # fixme: use ubuntu-latest once this gets fixed https://github.com/UmbrellaDocs/action-linkspector/issues/32
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Run linkspector
@@ -333,7 +332,7 @@ jobs:
           # - inprocess/libfuzzer_windows_asan
           - inprocess/libfuzzer_stb_image_sugar
           - inprocess/libfuzzer_stb_image
-          # - structure_aware/libfuzzer_stb_image_concolic
+          - structure_aware/libfuzzer_stb_image_concolic
           # - inprocess/sqlite_centralized_multi_machine
           # - inprocess/libafl_libfuzzer_windows
 
